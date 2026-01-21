@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import type {
   Preferences,
   MakkahZone,
@@ -34,7 +35,6 @@ function Select<T extends string>({
           padding: '0.7rem 0.75rem',
           borderRadius: '0.5rem',
           border: '1px solid var(--border)',
-          fontSize: '1rem',
           background: 'var(--card-bg)',
           color: 'var(--text)'
         }}
@@ -75,7 +75,6 @@ function Input({
           padding: '0.7rem 0.75rem',
           borderRadius: '0.5rem',
           border: '1px solid var(--border)',
-          fontSize: '1rem',
           background: 'var(--card-bg)',
           color: 'var(--text)'
         }}
@@ -85,10 +84,20 @@ function Input({
 }
 
 export default function PreferencesView({ value, onChange }: Props) {
+  // Local state ONLY for the input field (fixes the bug)
+  const [hujjajInput, setHujjajInput] = useState(
+    value.hujjajCount ? String(value.hujjajCount) : ''
+  )
+
+  useEffect(() => {
+    if (value.hujjajCount && String(value.hujjajCount) !== hujjajInput) {
+      setHujjajInput(String(value.hujjajCount))
+    }
+  }, [value.hujjajCount])
+
   const safeValue: Preferences = {
     ...value,
-    budgetCurrency: 'SAR',
-    hujjajCount: value.hujjajCount ?? 1
+    budgetCurrency: 'SAR'
   }
 
   return (
@@ -96,13 +105,13 @@ export default function PreferencesView({ value, onChange }: Props) {
       <h1>Preferences</h1>
 
       <div className="card muted" style={{ marginTop: '0.75rem' }}>
-        <strong>Budget note:</strong> Budget is SAR-only to keep recommendations accurate.
+        <strong>Note:</strong> Budget is SAR-only to keep recommendations accurate.
       </div>
 
-      <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Budget (SAR)</h2>
+      <h2 style={{ marginTop: '1.25rem' }}>Budget (SAR)</h2>
 
       <Input
-        label="Budget amount (total for group) — SAR"
+        label="Budget amount (total for group)"
         type="number"
         value={String(safeValue.budgetAmount ?? '')}
         onChange={(v) =>
@@ -117,18 +126,21 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Input
         label="Number of hujjaj in your group"
         type="number"
-        value={String(safeValue.hujjajCount)}
+        value={hujjajInput}
         onChange={(v) => {
+          setHujjajInput(v)
           const n = Number(v)
-          onChange({
-            ...safeValue,
-            hujjajCount: Number.isNaN(n) ? 1 : Math.max(1, n),
-            budgetCurrency: 'SAR'
-          })
+          if (!Number.isNaN(n) && n >= 1) {
+            onChange({
+              ...safeValue,
+              hujjajCount: n,
+              budgetCurrency: 'SAR'
+            })
+          }
         }}
       />
 
-      <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Package preferences</h2>
+      <h2 style={{ marginTop: '1.25rem' }}>Package preferences</h2>
 
       <Select<StayLocation | 'any'>
         label="First stay"
