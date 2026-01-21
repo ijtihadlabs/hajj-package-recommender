@@ -85,31 +85,18 @@ function Input({
 }
 
 export default function PreferencesView({ value, onChange }: Props) {
-  // Force SAR-only budget for correctness (no currency conversion)
   const safeValue: Preferences = {
     ...value,
     budgetCurrency: 'SAR',
-    hujjajCount: Math.max(1, value.hujjajCount || 1)
+    hujjajCount: value.hujjajCount ?? 1
   }
-
-  const provider = safeValue.provider ?? 'any'
-  const firstStay = safeValue.firstStay ?? 'any'
-  const lastStay = safeValue.lastStay ?? 'any'
-  const makkahZone = safeValue.makkahZone ?? 'any'
-  const minaCamp = safeValue.minaCamp ?? 'any'
-  const occupancy = safeValue.occupancy ?? 'any'
-  const shifting = safeValue.shifting ?? 'any'
 
   return (
     <section>
       <h1>Preferences</h1>
-      <p style={{ marginTop: '-0.25rem' }}>
-        Choose what matters to you. Every option supports “No preference”.
-      </p>
 
       <div className="card muted" style={{ marginTop: '0.75rem' }}>
-        <strong>Budget note:</strong> To keep recommendations accurate, budget is currently
-        SAR-only (no currency conversion). Please enter your budget in <strong>SAR</strong>.
+        <strong>Budget note:</strong> Budget is SAR-only to keep recommendations accurate.
       </div>
 
       <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Budget (SAR)</h2>
@@ -117,7 +104,7 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Input
         label="Budget amount (total for group) — SAR"
         type="number"
-        value={String(safeValue.budgetAmount ?? 0)}
+        value={String(safeValue.budgetAmount ?? '')}
         onChange={(v) =>
           onChange({
             ...safeValue,
@@ -131,34 +118,22 @@ export default function PreferencesView({ value, onChange }: Props) {
         label="Number of hujjaj in your group"
         type="number"
         value={String(safeValue.hujjajCount)}
-        onChange={(v) =>
+        onChange={(v) => {
+          const n = Number(v)
           onChange({
             ...safeValue,
-            hujjajCount: Math.max(1, Number(v) || 1),
+            hujjajCount: Number.isNaN(n) ? 1 : Math.max(1, n),
             budgetCurrency: 'SAR'
           })
-        }
+        }}
       />
 
       <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Package preferences</h2>
 
-      <Input
-        label="Provider"
-        value={provider === 'any' ? '' : provider}
-        placeholder="Leave empty for No preference"
-        onChange={(v) =>
-          onChange({
-            ...safeValue,
-            provider: v.trim() === '' ? 'any' : v.trim(),
-            budgetCurrency: 'SAR'
-          })
-        }
-      />
-
       <Select<StayLocation | 'any'>
         label="First stay"
-        value={firstStay as StayLocation | 'any'}
-        onChange={(v) => onChange({ ...safeValue, firstStay: v, budgetCurrency: 'SAR' })}
+        value={safeValue.firstStay ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, firstStay: v })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'madinah', label: 'Madinah' },
@@ -169,8 +144,8 @@ export default function PreferencesView({ value, onChange }: Props) {
 
       <Select<StayLocation | 'any'>
         label="Last stay"
-        value={lastStay as StayLocation | 'any'}
-        onChange={(v) => onChange({ ...safeValue, lastStay: v, budgetCurrency: 'SAR' })}
+        value={safeValue.lastStay ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, lastStay: v })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'madinah', label: 'Madinah' },
@@ -179,55 +154,23 @@ export default function PreferencesView({ value, onChange }: Props) {
         ]}
       />
 
-      <Input
-        label="Start date"
-        type="date"
-        value={safeValue.startDate ?? ''}
-        onChange={(v) =>
-          onChange({ ...safeValue, startDate: v === '' ? undefined : v, budgetCurrency: 'SAR' })
-        }
-      />
-
-      <Input
-        label="End date"
-        type="date"
-        value={safeValue.endDate ?? ''}
-        onChange={(v) =>
-          onChange({ ...safeValue, endDate: v === '' ? undefined : v, budgetCurrency: 'SAR' })
-        }
-      />
-
-      <Input
-        label="Duration (days)"
-        type="number"
-        value={safeValue.durationDays ? String(safeValue.durationDays) : ''}
-        placeholder="Leave empty for No preference"
-        onChange={(v) =>
-          onChange({
-            ...safeValue,
-            durationDays: v.trim() === '' ? undefined : Number(v),
-            budgetCurrency: 'SAR'
-          })
-        }
-      />
-
       <Select<MakkahZone | 'any'>
         label="Makkah hotel zone"
-        value={makkahZone as MakkahZone | 'any'}
-        onChange={(v) => onChange({ ...safeValue, makkahZone: v, budgetCurrency: 'SAR' })}
+        value={safeValue.makkahZone ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, makkahZone: v })}
         options={[
           { value: 'any', label: 'No preference' },
-          { value: 'A', label: 'Zone A (closest)' },
+          { value: 'A', label: 'Zone A' },
           { value: 'B', label: 'Zone B' },
           { value: 'C', label: 'Zone C' },
-          { value: 'M', label: 'Zone M (farthest)' }
+          { value: 'M', label: 'Zone M' }
         ]}
       />
 
       <Select<MinaCamp | 'any'>
         label="Mina camp"
-        value={minaCamp as MinaCamp | 'any'}
-        onChange={(v) => onChange({ ...safeValue, minaCamp: v, budgetCurrency: 'SAR' })}
+        value={safeValue.minaCamp ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, minaCamp: v })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'majr', label: 'Majr AlKabsh' },
@@ -236,9 +179,9 @@ export default function PreferencesView({ value, onChange }: Props) {
       />
 
       <Select<OccupancyType | 'any'>
-        label="Occupancy type"
-        value={occupancy as OccupancyType | 'any'}
-        onChange={(v) => onChange({ ...safeValue, occupancy: v, budgetCurrency: 'SAR' })}
+        label="Occupancy"
+        value={safeValue.occupancy ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, occupancy: v })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'double', label: 'Double' },
@@ -249,8 +192,8 @@ export default function PreferencesView({ value, onChange }: Props) {
 
       <Select<ShiftingType | 'any'>
         label="Shifting"
-        value={shifting as ShiftingType | 'any'}
-        onChange={(v) => onChange({ ...safeValue, shifting: v, budgetCurrency: 'SAR' })}
+        value={safeValue.shifting ?? 'any'}
+        onChange={(v) => onChange({ ...safeValue, shifting: v })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'shifting', label: 'Shifting' },
