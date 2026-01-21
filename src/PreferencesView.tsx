@@ -33,8 +33,10 @@ function Select<T extends string>({
           width: '100%',
           padding: '0.7rem 0.75rem',
           borderRadius: '0.5rem',
-          border: '1px solid #e2e8f0',
-          fontSize: '1rem'
+          border: '1px solid var(--border)',
+          fontSize: '1rem',
+          background: 'var(--card-bg)',
+          color: 'var(--text)'
         }}
       >
         {options.map((o) => (
@@ -72,8 +74,10 @@ function Input({
           width: '100%',
           padding: '0.7rem 0.75rem',
           borderRadius: '0.5rem',
-          border: '1px solid #e2e8f0',
-          fontSize: '1rem'
+          border: '1px solid var(--border)',
+          fontSize: '1rem',
+          background: 'var(--card-bg)',
+          color: 'var(--text)'
         }}
       />
     </label>
@@ -81,13 +85,20 @@ function Input({
 }
 
 export default function PreferencesView({ value, onChange }: Props) {
-  const provider = value.provider ?? 'any'
-  const firstStay = value.firstStay ?? 'any'
-  const lastStay = value.lastStay ?? 'any'
-  const makkahZone = value.makkahZone ?? 'any'
-  const minaCamp = value.minaCamp ?? 'any'
-  const occupancy = value.occupancy ?? 'any'
-  const shifting = value.shifting ?? 'any'
+  // Force SAR-only budget for correctness (no currency conversion)
+  const safeValue: Preferences = {
+    ...value,
+    budgetCurrency: 'SAR',
+    hujjajCount: Math.max(1, value.hujjajCount || 1)
+  }
+
+  const provider = safeValue.provider ?? 'any'
+  const firstStay = safeValue.firstStay ?? 'any'
+  const lastStay = safeValue.lastStay ?? 'any'
+  const makkahZone = safeValue.makkahZone ?? 'any'
+  const minaCamp = safeValue.minaCamp ?? 'any'
+  const occupancy = safeValue.occupancy ?? 'any'
+  const shifting = safeValue.shifting ?? 'any'
 
   return (
     <section>
@@ -96,26 +107,37 @@ export default function PreferencesView({ value, onChange }: Props) {
         Choose what matters to you. Every option supports “No preference”.
       </p>
 
-      <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Budget</h2>
+      <div className="card muted" style={{ marginTop: '0.75rem' }}>
+        <strong>Budget note:</strong> To keep recommendations accurate, budget is currently
+        SAR-only (no currency conversion). Please enter your budget in <strong>SAR</strong>.
+      </div>
+
+      <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Budget (SAR)</h2>
 
       <Input
-        label="Budget amount (total for group)"
+        label="Budget amount (total for group) — SAR"
         type="number"
-        value={String(value.budgetAmount ?? 0)}
-        onChange={(v) => onChange({ ...value, budgetAmount: Number(v) || 0 })}
-      />
-
-      <Input
-        label="Budget currency (e.g., GBP, USD, SAR)"
-        value={value.budgetCurrency ?? 'GBP'}
-        onChange={(v) => onChange({ ...value, budgetCurrency: v.toUpperCase().trim() })}
+        value={String(safeValue.budgetAmount ?? 0)}
+        onChange={(v) =>
+          onChange({
+            ...safeValue,
+            budgetAmount: Number(v) || 0,
+            budgetCurrency: 'SAR'
+          })
+        }
       />
 
       <Input
         label="Number of hujjaj in your group"
         type="number"
-        value={String(value.hujjajCount ?? 1)}
-        onChange={(v) => onChange({ ...value, hujjajCount: Math.max(1, Number(v) || 1) })}
+        value={String(safeValue.hujjajCount)}
+        onChange={(v) =>
+          onChange({
+            ...safeValue,
+            hujjajCount: Math.max(1, Number(v) || 1),
+            budgetCurrency: 'SAR'
+          })
+        }
       />
 
       <h2 style={{ fontSize: '1.05rem', marginTop: '1.25rem' }}>Package preferences</h2>
@@ -124,13 +146,19 @@ export default function PreferencesView({ value, onChange }: Props) {
         label="Provider"
         value={provider === 'any' ? '' : provider}
         placeholder="Leave empty for No preference"
-        onChange={(v) => onChange({ ...value, provider: v.trim() === '' ? 'any' : v.trim() })}
+        onChange={(v) =>
+          onChange({
+            ...safeValue,
+            provider: v.trim() === '' ? 'any' : v.trim(),
+            budgetCurrency: 'SAR'
+          })
+        }
       />
 
       <Select<StayLocation | 'any'>
         label="First stay"
         value={firstStay as StayLocation | 'any'}
-        onChange={(v) => onChange({ ...value, firstStay: v })}
+        onChange={(v) => onChange({ ...safeValue, firstStay: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'madinah', label: 'Madinah' },
@@ -142,7 +170,7 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Select<StayLocation | 'any'>
         label="Last stay"
         value={lastStay as StayLocation | 'any'}
-        onChange={(v) => onChange({ ...value, lastStay: v })}
+        onChange={(v) => onChange({ ...safeValue, lastStay: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'madinah', label: 'Madinah' },
@@ -154,31 +182,39 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Input
         label="Start date"
         type="date"
-        value={value.startDate ?? ''}
-        onChange={(v) => onChange({ ...value, startDate: v === '' ? undefined : v })}
+        value={safeValue.startDate ?? ''}
+        onChange={(v) =>
+          onChange({ ...safeValue, startDate: v === '' ? undefined : v, budgetCurrency: 'SAR' })
+        }
       />
 
       <Input
         label="End date"
         type="date"
-        value={value.endDate ?? ''}
-        onChange={(v) => onChange({ ...value, endDate: v === '' ? undefined : v })}
+        value={safeValue.endDate ?? ''}
+        onChange={(v) =>
+          onChange({ ...safeValue, endDate: v === '' ? undefined : v, budgetCurrency: 'SAR' })
+        }
       />
 
       <Input
         label="Duration (days)"
         type="number"
-        value={value.durationDays ? String(value.durationDays) : ''}
+        value={safeValue.durationDays ? String(safeValue.durationDays) : ''}
         placeholder="Leave empty for No preference"
         onChange={(v) =>
-          onChange({ ...value, durationDays: v.trim() === '' ? undefined : Number(v) })
+          onChange({
+            ...safeValue,
+            durationDays: v.trim() === '' ? undefined : Number(v),
+            budgetCurrency: 'SAR'
+          })
         }
       />
 
       <Select<MakkahZone | 'any'>
         label="Makkah hotel zone"
         value={makkahZone as MakkahZone | 'any'}
-        onChange={(v) => onChange({ ...value, makkahZone: v })}
+        onChange={(v) => onChange({ ...safeValue, makkahZone: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'A', label: 'Zone A (closest)' },
@@ -191,7 +227,7 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Select<MinaCamp | 'any'>
         label="Mina camp"
         value={minaCamp as MinaCamp | 'any'}
-        onChange={(v) => onChange({ ...value, minaCamp: v })}
+        onChange={(v) => onChange({ ...safeValue, minaCamp: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'majr', label: 'Majr AlKabsh' },
@@ -202,7 +238,7 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Select<OccupancyType | 'any'>
         label="Occupancy type"
         value={occupancy as OccupancyType | 'any'}
-        onChange={(v) => onChange({ ...value, occupancy: v })}
+        onChange={(v) => onChange({ ...safeValue, occupancy: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'double', label: 'Double' },
@@ -214,7 +250,7 @@ export default function PreferencesView({ value, onChange }: Props) {
       <Select<ShiftingType | 'any'>
         label="Shifting"
         value={shifting as ShiftingType | 'any'}
-        onChange={(v) => onChange({ ...value, shifting: v })}
+        onChange={(v) => onChange({ ...safeValue, shifting: v, budgetCurrency: 'SAR' })}
         options={[
           { value: 'any', label: 'No preference' },
           { value: 'shifting', label: 'Shifting' },
