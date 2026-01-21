@@ -534,7 +534,7 @@ export default function App() {
         {/* HOME */}
         {tab === 'home' && (
           <section>
-            <h1>Hajj Package Recommender</h1>
+            <h1>Hajj Package Helper</h1>
             <p className="muted" style={{ marginTop: '-0.25rem' }}>
               A small effort to make things easier for potential hujjaj — seeking nothing but your
               du‘ā’ and reward from Allah. May Allah accept from all of us and invite us to perform
