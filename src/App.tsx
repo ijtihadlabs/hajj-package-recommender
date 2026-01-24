@@ -123,6 +123,17 @@ function NusukDisclaimer() {
   )
 }
 
+function HomeFooter() {
+  return (
+    <div className="app-footer">
+      Built with love by{' '}
+      <a href="https://ijtihadlabs.org" target="_blank" rel="noreferrer">
+        Ijtihad Labs
+      </a>
+    </div>
+  )
+}
+
 function TopNav({ tab, onGoHome }: { tab: Tab; onGoHome: () => void }) {
   if (tab === 'home') return null
   return (
@@ -551,6 +562,7 @@ export default function App() {
             <InstallTip />
             <NusukDisclaimer />
             <RejectedReport rejected={rejected} />
+            <HomeFooter />
           </section>
         )}
 
