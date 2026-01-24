@@ -3,7 +3,7 @@
 A small, local-only web app to help prospective hujjaj compare and evaluate Hajj packages
 based on personal preferences and budget.
 
-Current release: v1.0.5
+Current release: v1.0.6
 
 This project is built as a khidmah (service) effort.
 No tracking. No accounts. No data leaves your device.

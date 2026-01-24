@@ -22,6 +22,22 @@ import type { LoaderResult } from './preloadedLoader'
 
 type Tab = 'home' | 'saved' | 'recommend' | 'packages' | 'preferences'
 
+type PackageFilters = {
+  provider: string
+  shifting: 'any' | 'shifting' | 'non-shifting'
+  makkahZone: string
+  durationDays: string
+  startDate: string
+  endDate: string
+  makkahHotel: string
+  madinahHotel: string
+  minaCamp: 'any' | 'majr' | 'muaisim'
+  flightGateway: string
+  minPrice: string
+  maxPrice: string
+  sort: 'none' | 'price-asc' | 'price-desc'
+}
+
 const MAJR_UPGRADE_FEE_SAR = 4673.42
 const PREFS_KEY = 'hajj_prefs_v1'
 
@@ -150,13 +166,19 @@ function PackageCard({
   editedLocally,
   isSaved,
   onToggleSaved,
-  onEdit
+  onEdit,
+  showCompareToggle = false,
+  isCompared = false,
+  onToggleCompare
 }: {
   pkg: HajjPackage
   editedLocally: boolean
   isSaved: boolean
   onToggleSaved: (id: string) => void
   onEdit: (pkg: HajjPackage) => void
+  showCompareToggle?: boolean
+  isCompared?: boolean
+  onToggleCompare?: (id: string) => void
 }) {
   const dateLine = `${pkg.startDate} → ${pkg.endDate} (${pkg.durationDays} days)`
   const hotelsLine = pkg.hotels
@@ -164,7 +186,7 @@ function PackageCard({
     .join(' • ')
 
   return (
-    <div className="card">
+    <div className="card package-card">
       <div className="card-header">
         <div className="card-title">
           <strong>
@@ -188,6 +210,16 @@ function PackageCard({
           <button type="button" className="outline-btn small" onClick={() => onEdit(pkg)}>
             Edit
           </button>
+
+          {showCompareToggle && onToggleCompare && (
+            <button
+              type="button"
+              className={isCompared ? 'outline-btn small compare-btn active' : 'outline-btn small compare-btn'}
+              onClick={() => onToggleCompare(pkg.id)}
+            >
+              {isCompared ? 'Comparing' : 'Compare'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -306,6 +338,14 @@ function ProviderFilter({
       </div>
     </details>
   )
+}
+
+function getHotelName(pkg: HajjPackage, city: 'makkah' | 'madinah') {
+  return pkg.hotels.find((h) => h.city === city)?.hotelName ?? ''
+}
+
+function uniqueSorted(items: string[]) {
+  return Array.from(new Set(items.filter(Boolean))).sort((a, b) => a.localeCompare(b))
 }
 
 function HomeTile({
@@ -473,16 +513,163 @@ export default function App() {
     setResults(recommendPackages(filtered, effectivePrefs))
   }
 
-  const [packagesProviderFilter, setPackagesProviderFilter] = useState<string>('all')
-  const visiblePackages =
-    packagesProviderFilter === 'all'
-      ? mergedPackages
-      : mergedPackages.filter((p) => p.provider === packagesProviderFilter)
+  const [showPackageFilters, setShowPackageFilters] = useState(false)
+  const [compareIds, setCompareIds] = useState<string[]>([])
+  const [showCompareView, setShowCompareView] = useState(false)
+  const emptyPackageFilters: PackageFilters = {
+    provider: 'any',
+    shifting: 'any',
+    makkahZone: 'any',
+    durationDays: 'any',
+    startDate: 'any',
+    endDate: 'any',
+    makkahHotel: 'any',
+    madinahHotel: 'any',
+    minaCamp: 'any',
+    flightGateway: 'any',
+    minPrice: '',
+    maxPrice: '',
+    sort: 'none'
+  }
+  const [packageFilters, setPackageFilters] = useState<PackageFilters>(emptyPackageFilters)
+  const [draftPackageFilters, setDraftPackageFilters] = useState<PackageFilters>(emptyPackageFilters)
+
+  function openPackageFilters() {
+    setDraftPackageFilters(packageFilters)
+    setShowPackageFilters(true)
+  }
+
+  function applyPackageFilters() {
+    setPackageFilters(draftPackageFilters)
+    setShowPackageFilters(false)
+  }
+
+  function resetPackageFilters() {
+    setPackageFilters(emptyPackageFilters)
+    setDraftPackageFilters(emptyPackageFilters)
+    setShowPackageFilters(false)
+  }
+
+  function toggleCompare(id: string) {
+    setCompareIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id)
+      if (prev.length >= 3) {
+        alert('You can compare up to 3 packages at a time.')
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+
+  function clearCompare() {
+    setCompareIds([])
+    setShowCompareView(false)
+  }
+
+  function openCompare() {
+    if (compareIds.length < 2) {
+      alert('Select at least 2 packages to compare.')
+      return
+    }
+    setShowCompareView(true)
+  }
+
+  const filteredPackages = mergedPackages.filter((p) => {
+    if (packageFilters.provider !== 'any' && p.provider !== packageFilters.provider) return false
+
+    if (packageFilters.shifting !== 'any') {
+      const shiftingMatch = packageFilters.shifting === 'shifting' ? p.isShifting : !p.isShifting
+      if (!shiftingMatch) return false
+    }
+
+    if (packageFilters.makkahZone !== 'any' && p.makkahZone !== packageFilters.makkahZone) return false
+    if (packageFilters.minaCamp !== 'any' && p.minaCamp !== packageFilters.minaCamp) return false
+
+    if (packageFilters.durationDays !== 'any') {
+      if (String(p.durationDays) !== packageFilters.durationDays) return false
+    }
+
+    if (packageFilters.startDate !== 'any' && p.startDate !== packageFilters.startDate) return false
+    if (packageFilters.endDate !== 'any' && p.endDate !== packageFilters.endDate) return false
+
+    if (packageFilters.makkahHotel !== 'any') {
+      if (getHotelName(p, 'makkah') !== packageFilters.makkahHotel) return false
+    }
+
+    if (packageFilters.madinahHotel !== 'any') {
+      if (getHotelName(p, 'madinah') !== packageFilters.madinahHotel) return false
+    }
+
+    if (packageFilters.flightGateway !== 'any') {
+      if (p.flight?.gateway !== packageFilters.flightGateway) return false
+    }
+
+    const minPrice = Number(packageFilters.minPrice)
+    if (packageFilters.minPrice && !Number.isNaN(minPrice) && p.basePriceSAR < minPrice) return false
+
+    const maxPrice = Number(packageFilters.maxPrice)
+    if (packageFilters.maxPrice && !Number.isNaN(maxPrice) && p.basePriceSAR > maxPrice) return false
+
+    return true
+  })
+
+  const visiblePackages = [...filteredPackages].sort((a, b) => {
+    if (packageFilters.sort === 'price-asc') return a.basePriceSAR - b.basePriceSAR
+    if (packageFilters.sort === 'price-desc') return b.basePriceSAR - a.basePriceSAR
+    const providerCompare = a.provider.localeCompare(b.provider)
+    if (providerCompare !== 0) return providerCompare
+    return a.basePriceSAR - b.basePriceSAR
+  })
 
   const savedPackages = useMemo(() => {
     const byId = new Map(mergedPackages.map((p) => [p.id, p]))
     return favouriteIds.map((id) => byId.get(id)).filter(Boolean) as HajjPackage[]
   }, [favouriteIds, mergedPackages])
+
+  const comparePackages = useMemo(() => {
+    const byId = new Map(mergedPackages.map((p) => [p.id, p]))
+    return compareIds.map((id) => byId.get(id)).filter(Boolean) as HajjPackage[]
+  }, [compareIds, mergedPackages])
+
+  const packageProviders = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.provider)),
+    [mergedPackages]
+  )
+
+  const packageZones = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.makkahZone)),
+    [mergedPackages]
+  )
+
+  const packageDurations = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => String(p.durationDays))),
+    [mergedPackages]
+  )
+
+  const packageStartDates = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.startDate)),
+    [mergedPackages]
+  )
+
+  const packageEndDates = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.endDate)),
+    [mergedPackages]
+  )
+
+  const packageMakkahHotels = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => getHotelName(p, 'makkah'))),
+    [mergedPackages]
+  )
+
+  const packageMadinahHotels = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => getHotelName(p, 'madinah'))),
+    [mergedPackages]
+  )
+
+  const packageFlightGateways = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.flight?.gateway ?? '')),
+    [mergedPackages]
+  )
 
   async function handleCsvFile(file: File) {
     setImportStatus('')
@@ -544,7 +731,7 @@ export default function App() {
 
         {/* HOME */}
         {tab === 'home' && (
-          <section>
+          <section className="home-section">
             <h1>Hajj Package Helper</h1>
             <p className="muted" style={{ marginTop: '-0.25rem' }}>
               A small effort to make things easier for potential hujjaj — seeking nothing but your
@@ -713,6 +900,15 @@ export default function App() {
               </button>
             </div>
 
+            <div style={{ display: 'flex', gap: '0.5rem', margin: '0 0 0.75rem' }}>
+              <button type="button" className="outline-btn" style={{ flex: 1 }} onClick={openPackageFilters}>
+                Filters & sort
+              </button>
+              <button type="button" className="outline-btn" style={{ flex: 1 }} onClick={resetPackageFilters}>
+                Show all packages
+              </button>
+            </div>
+
             <input
               ref={fileInputRef}
               type="file"
@@ -728,30 +924,397 @@ export default function App() {
 
             {importStatus && <div className="card muted">{importStatus}</div>}
 
-            <label style={{ display: 'block', margin: '0.75rem 0' }}>
-              <div className="muted" style={{ marginBottom: '0.35rem' }}>
-                Filter by provider
+            {compareIds.length > 0 && (
+              <div className="card compare-summary">
+                <div className="compare-summary-header">
+                  <div>
+                    <strong>Compare packages</strong>
+                    <div className="muted">Select up to 3 packages to view side by side.</div>
+                  </div>
+                  <button type="button" className="outline-btn small" onClick={clearCompare}>
+                    Clear
+                  </button>
+                </div>
+
+                <div className="compare-tags">
+                  {comparePackages.map((p) => (
+                    <span key={p.id} className="pill">
+                      {p.provider} — {p.packageName}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="compare-actions">
+                  <button type="button" className="primary-button" onClick={openCompare}>
+                    Compare
+                  </button>
+                </div>
               </div>
-              <select value={packagesProviderFilter} onChange={(e) => setPackagesProviderFilter(e.target.value)} className="select">
-                <option value="all">All providers</option>
-                {allProviders.map((p) => (
-                  <option key={p} value={p}>{p}</option>
-                ))}
-              </select>
-            </label>
+            )}
+
+            {showPackageFilters && (
+              <div className="card filter-panel">
+                <div className="filter-grid">
+                  <label className="filter-field">
+                    <div className="muted">Provider</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.provider}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, provider: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageProviders.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Shifting</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.shifting}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({
+                          ...prev,
+                          shifting: e.target.value as PackageFilters['shifting']
+                        }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="non-shifting">Non-shifting</option>
+                      <option value="shifting">Shifting</option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Makkah zone</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.makkahZone}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, makkahZone: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageZones.map((z) => (
+                        <option key={z} value={z}>
+                          {z}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Duration (days)</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.durationDays}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, durationDays: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageDurations.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Start date</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.startDate}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, startDate: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageStartDates.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">End date</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.endDate}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, endDate: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageEndDates.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Makkah hotel</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.makkahHotel}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, makkahHotel: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageMakkahHotels.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Madinah hotel</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.madinahHotel}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, madinahHotel: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageMadinahHotels.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Mina camp</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.minaCamp}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({
+                          ...prev,
+                          minaCamp: e.target.value as PackageFilters['minaCamp']
+                        }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="majr">Majr AlKabsh</option>
+                      <option value="muaisim">Al Muaisim</option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Flight gateway</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.flightGateway}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, flightGateway: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageFlightGateways.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Price range (SAR)</div>
+                    <div className="filter-inline">
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="Min"
+                        value={draftPackageFilters.minPrice}
+                        onChange={(e) =>
+                          setDraftPackageFilters((prev) => ({ ...prev, minPrice: e.target.value }))
+                        }
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="Max"
+                        value={draftPackageFilters.maxPrice}
+                        onChange={(e) =>
+                          setDraftPackageFilters((prev) => ({ ...prev, maxPrice: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Sort by price</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.sort}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({
+                          ...prev,
+                          sort: e.target.value as PackageFilters['sort']
+                        }))
+                      }
+                    >
+                      <option value="none">Default order</option>
+                      <option value="price-asc">Low to high</option>
+                      <option value="price-desc">High to low</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="filter-actions">
+                  <button type="button" className="outline-btn" onClick={resetPackageFilters}>
+                    Reset
+                  </button>
+                  <button type="button" className="primary-button" onClick={applyPackageFilters}>
+                    Show packages
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showCompareView && comparePackages.length > 0 && (
+              <div className="card compare-table">
+                <div className="compare-header">
+                  <strong>Package comparison</strong>
+                  <button type="button" className="outline-btn small" onClick={() => setShowCompareView(false)}>
+                    Back to packages
+                  </button>
+                </div>
+
+                <div className="compare-scroll">
+                  <div
+                    className="compare-grid"
+                    style={{ gridTemplateColumns: `170px repeat(${comparePackages.length}, minmax(200px, 1fr))` }}
+                  >
+                    <div className="compare-cell compare-label">Provider</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-provider`} className="compare-cell">
+                        {p.provider}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Package</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-name`} className="compare-cell">
+                        {p.packageName}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Base price</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-price`} className="compare-cell">
+                        {formatSAR(p.basePriceSAR)}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Dates</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-dates`} className="compare-cell">
+                        {p.startDate} → {p.endDate}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Duration</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-duration`} className="compare-cell">
+                        {p.durationDays} days
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Makkah zone</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-zone`} className="compare-cell">
+                        {p.makkahZone}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Shifting</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-shift`} className="compare-cell">
+                        {p.isShifting ? 'Shifting' : 'Non-shifting'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Mina camp</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-camp`} className="compare-cell">
+                        {campLabel(p.minaCamp)}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Makkah hotel</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-makkah`} className="compare-cell">
+                        {getHotelName(p, 'makkah') || '—'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Madinah hotel</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-madinah`} className="compare-cell">
+                        {getHotelName(p, 'madinah') || '—'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Flight gateway</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-flight`} className="compare-cell">
+                        {p.flight?.gateway || '—'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Package link</div>
+                    {comparePackages.map((p) => (
+                      <div key={`${p.id}-link`} className="compare-cell">
+                        {p.packageLink ? (
+                          <a href={p.packageLink} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
 
             <NusukDisclaimer />
 
-            {visiblePackages.map((p) => (
-              <PackageCard
-                key={p.id}
-                pkg={p}
-                editedLocally={editedIds.has(p.id)}
-                isSaved={favouriteIds.includes(p.id)}
-                onToggleSaved={onToggleSaved}
-                onEdit={setEditingPkg}
-              />
-            ))}
+            {!showCompareView &&
+              visiblePackages.map((p) => (
+                <PackageCard
+                  key={p.id}
+                  pkg={p}
+                  editedLocally={editedIds.has(p.id)}
+                  isSaved={favouriteIds.includes(p.id)}
+                  onToggleSaved={onToggleSaved}
+                  onEdit={setEditingPkg}
+                  showCompareToggle
+                  isCompared={compareIds.includes(p.id)}
+                  onToggleCompare={toggleCompare}
+                />
+              ))}
 
             <RejectedReport rejected={rejected} />
           </section>
