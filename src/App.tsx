@@ -33,7 +33,6 @@ type PackageFilters = {
   makkahHotel: string
   madinahHotel: string
   minaCamp: 'any' | 'majr' | 'muaisim'
-  flightGateway: string
   minPrice: string
   maxPrice: string
   sort: 'none' | 'price-asc' | 'price-desc'
@@ -886,7 +885,6 @@ export default function App() {
     makkahHotel: 'any',
     madinahHotel: 'any',
     minaCamp: 'any',
-    flightGateway: 'any',
     minPrice: '',
     maxPrice: '',
     sort: 'none'
@@ -996,8 +994,8 @@ export default function App() {
       if (String(p.durationDays) !== packageFilters.durationDays) return false
     }
 
-    if (packageFilters.startDate !== 'any' && p.startDate !== packageFilters.startDate) return false
-    if (packageFilters.endDate !== 'any' && p.endDate !== packageFilters.endDate) return false
+    if (packageFilters.startDate !== 'any' && p.startDate < packageFilters.startDate) return false
+    if (packageFilters.endDate !== 'any' && p.endDate > packageFilters.endDate) return false
 
     if (packageFilters.makkahHotel !== 'any') {
       if (getHotelName(p, 'makkah') !== packageFilters.makkahHotel) return false
@@ -1005,10 +1003,6 @@ export default function App() {
 
     if (packageFilters.madinahHotel !== 'any') {
       if (getHotelName(p, 'madinah') !== packageFilters.madinahHotel) return false
-    }
-
-    if (packageFilters.flightGateway !== 'any') {
-      if (p.flight?.gateway !== packageFilters.flightGateway) return false
     }
 
     const minPrice = Number(packageFilters.minPrice)
@@ -1043,8 +1037,8 @@ export default function App() {
       if (String(p.durationDays) !== packagePlusFilters.durationDays) return false
     }
 
-    if (packagePlusFilters.startDate !== 'any' && p.startDate !== packagePlusFilters.startDate) return false
-    if (packagePlusFilters.endDate !== 'any' && p.endDate !== packagePlusFilters.endDate) return false
+    if (packagePlusFilters.startDate !== 'any' && p.startDate < packagePlusFilters.startDate) return false
+    if (packagePlusFilters.endDate !== 'any' && p.endDate > packagePlusFilters.endDate) return false
 
     if (packagePlusFilters.makkahHotel !== 'any') {
       if (getHotelName(p, 'makkah') !== packagePlusFilters.makkahHotel) return false
@@ -1052,10 +1046,6 @@ export default function App() {
 
     if (packagePlusFilters.madinahHotel !== 'any') {
       if (getHotelName(p, 'madinah') !== packagePlusFilters.madinahHotel) return false
-    }
-
-    if (packagePlusFilters.flightGateway !== 'any') {
-      if (p.flight?.gateway !== packagePlusFilters.flightGateway) return false
     }
 
     const minPrice = Number(packagePlusFilters.minPrice)
@@ -1160,10 +1150,6 @@ export default function App() {
     [plusPreloaded]
   )
 
-  const packageFlightGateways = useMemo(
-    () => uniqueSorted(mergedPackages.map((p) => p.flight?.gateway ?? '')),
-    [mergedPackages]
-  )
 
   async function handleCsvFile(file: File) {
     setImportStatus('')
@@ -1623,24 +1609,6 @@ export default function App() {
                       <option value="any">Any</option>
                       <option value="majr">Majr AlKabsh</option>
                       <option value="muaisim">Al Muaisim</option>
-                    </select>
-                  </label>
-
-                  <label className="filter-field">
-                    <div className="muted">Flight gateway</div>
-                    <select
-                      className="select"
-                      value={draftPackageFilters.flightGateway}
-                      onChange={(e) =>
-                        setDraftPackageFilters((prev) => ({ ...prev, flightGateway: e.target.value }))
-                      }
-                    >
-                      <option value="any">Any</option>
-                      {packageFlightGateways.map((g) => (
-                        <option key={g} value={g}>
-                          {g}
-                        </option>
-                      ))}
                     </select>
                   </label>
 
