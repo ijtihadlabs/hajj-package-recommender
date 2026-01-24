@@ -81,6 +81,7 @@ export interface HajjPackage {
   /** Locations */
   makkahZone: MakkahZone
   minaCamp: MinaCamp
+  minaCampUpgradeAvailable?: boolean
 
   /** Hotel stays */
   hotels: HotelStay[]

@@ -6,6 +6,7 @@ import EditPackageModal from './EditPackageModal'
 import AddPackageModal from './AddPackageModal'
 import { recommendPackages } from './recommendationEngine'
 import { loadPreloadedPackages } from './preloadedLoader'
+import { loadAlternativePackages } from './preloadedLoaderAlternative'
 import {
   mergePackages,
   packageDedupeKey,
@@ -20,7 +21,7 @@ import { importTemplateCsv } from './importCsv'
 import type { Preferences, HajjPackage } from './models'
 import type { LoaderResult } from './preloadedLoader'
 
-type Tab = 'home' | 'saved' | 'recommend' | 'packages' | 'preferences'
+type Tab = 'home' | 'saved' | 'recommend' | 'packages' | 'packagePlus' | 'preferences'
 
 type PackageFilters = {
   provider: string
@@ -38,8 +39,19 @@ type PackageFilters = {
   sort: 'none' | 'price-asc' | 'price-desc'
 }
 
+type RoomOccupancy = 'quad' | 'triple' | 'double'
+
+type PackagePlusSelection = {
+  hujjajCount: number
+  minaCamp: 'muaisim' | 'majr'
+  makkahOcc: RoomOccupancy
+  madinahOcc: RoomOccupancy
+  aziziyaOcc: RoomOccupancy
+}
+
 const MAJR_UPGRADE_FEE_SAR = 4673.42
 const PREFS_KEY = 'hajj_prefs_v1'
+const PACKAGE_PLUS_SELECTIONS_KEY = 'hajj_pkg_plus_selections_v1'
 
 function formatSAR(n: number) {
   return `${Math.round(n).toLocaleString()} SAR`
@@ -87,6 +99,66 @@ function occupancyUpgradeForSelection(pkg: HajjPackage, prefs: Preferences): num
   if (occ === 'double') return sumUpgradeFees(pkg, 'double')
   if (occ === 'triple') return sumUpgradeFees(pkg, 'triple')
   return 0
+}
+
+function getOccupancyOptions(fees?: { double?: number; triple?: number }): RoomOccupancy[] {
+  const options: RoomOccupancy[] = ['quad']
+  if (typeof fees?.triple === 'number' && fees.triple > 0) options.push('triple')
+  if (typeof fees?.double === 'number' && fees.double > 0) options.push('double')
+  return options
+}
+
+function getOccupancyFee(fees: { double?: number; triple?: number } | undefined, occ: RoomOccupancy): number {
+  if (!fees) return 0
+  if (occ === 'double') return fees.double ?? 0
+  if (occ === 'triple') return fees.triple ?? 0
+  return 0
+}
+
+function defaultPackagePlusSelection(): PackagePlusSelection {
+  return {
+    hujjajCount: 1,
+    minaCamp: 'muaisim',
+    makkahOcc: 'quad',
+    madinahOcc: 'quad',
+    aziziyaOcc: 'quad'
+  }
+}
+
+function normalizePackagePlusSelection(pkg: HajjPackage, selection?: Partial<PackagePlusSelection>): PackagePlusSelection {
+  const base = defaultPackagePlusSelection()
+  const next: PackagePlusSelection = {
+    ...base,
+    ...selection
+  }
+
+  next.hujjajCount = Math.max(1, Number(next.hujjajCount) || 1)
+
+  if (!pkg.minaCampUpgradeAvailable) {
+    next.minaCamp = 'muaisim'
+  }
+
+  const safeOcc = (occ: RoomOccupancy, fees?: { double?: number; triple?: number }): RoomOccupancy => {
+    const allowed = getOccupancyOptions(fees)
+    return allowed.includes(occ) ? occ : 'quad'
+  }
+
+  next.makkahOcc = safeOcc(next.makkahOcc, pkg.upgradeFees?.makkah)
+  next.madinahOcc = safeOcc(next.madinahOcc, pkg.upgradeFees?.madinah)
+  next.aziziyaOcc = pkg.isShifting ? safeOcc(next.aziziyaOcc, pkg.upgradeFees?.aziziya) : 'quad'
+
+  return next
+}
+
+function loadPackagePlusSelections(): Record<string, PackagePlusSelection> {
+  try {
+    const raw = localStorage.getItem(PACKAGE_PLUS_SELECTIONS_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch {
+    return {}
+  }
 }
 
 /* ---------------- UI blocks ---------------- */
@@ -267,6 +339,241 @@ function PackageCard({
   )
 }
 
+function PackagePlusCard({
+  pkg,
+  selection,
+  onSelectionChange,
+  isSaved,
+  onToggleSaved,
+  showCompareToggle = false,
+  isCompared = false,
+  onToggleCompare
+}: {
+  pkg: HajjPackage
+  selection: PackagePlusSelection
+  onSelectionChange: (updates: Partial<PackagePlusSelection>) => void
+  isSaved: boolean
+  onToggleSaved: (id: string) => void
+  showCompareToggle?: boolean
+  isCompared?: boolean
+  onToggleCompare?: (id: string) => void
+}) {
+  const dateLine = `${pkg.startDate} → ${pkg.endDate} (${pkg.durationDays} days)`
+  const hotelsLine = pkg.hotels
+    .map((h) => `${h.city.toUpperCase()}: ${h.hotelName} (${h.checkInDate})`)
+    .join(' • ')
+
+  const makkahOptions = getOccupancyOptions(pkg.upgradeFees?.makkah)
+  const madinahOptions = getOccupancyOptions(pkg.upgradeFees?.madinah)
+  const aziziyaOptions = getOccupancyOptions(pkg.upgradeFees?.aziziya)
+  const campOptions = pkg.minaCampUpgradeAvailable ? ['muaisim', 'majr'] : ['muaisim']
+
+  const selectedUpgrades: string[] = []
+  if (selection.minaCamp === 'majr') {
+    selectedUpgrades.push(`Majr camp +${formatSAR2(MAJR_UPGRADE_FEE_SAR)} pp`)
+  }
+
+  const addUpgrade = (label: string, fees: { double?: number; triple?: number } | undefined, occ: RoomOccupancy) => {
+    if (occ === 'quad') return 0
+    const fee = getOccupancyFee(fees, occ)
+    if (fee > 0) {
+      selectedUpgrades.push(`${label} ${occ} +${formatSAR2(fee)} pp`)
+    }
+    return fee
+  }
+
+  const perPerson =
+    pkg.basePriceSAR +
+    (selection.minaCamp === 'majr' ? MAJR_UPGRADE_FEE_SAR : 0) +
+    addUpgrade('Makkah', pkg.upgradeFees?.makkah, selection.makkahOcc) +
+    addUpgrade('Madinah', pkg.upgradeFees?.madinah, selection.madinahOcc) +
+    (pkg.isShifting
+      ? addUpgrade('Aziziya', pkg.upgradeFees?.aziziya, selection.aziziyaOcc)
+      : 0)
+
+  const total = perPerson * selection.hujjajCount
+
+  const possibleUpgrades: string[] = []
+  if (pkg.minaCampUpgradeAvailable) {
+    possibleUpgrades.push(`Majr camp +${formatSAR2(MAJR_UPGRADE_FEE_SAR)} pp`)
+  }
+  const pushPossible = (label: string, fees: { double?: number; triple?: number } | undefined) => {
+    if (fees?.triple) possibleUpgrades.push(`${label} triple +${formatSAR2(fees.triple)} pp`)
+    if (fees?.double) possibleUpgrades.push(`${label} double +${formatSAR2(fees.double)} pp`)
+  }
+  pushPossible('Makkah', pkg.upgradeFees?.makkah)
+  pushPossible('Madinah', pkg.upgradeFees?.madinah)
+  if (pkg.isShifting) pushPossible('Aziziya', pkg.upgradeFees?.aziziya)
+
+  const showPossible = selectedUpgrades.length === 0 && possibleUpgrades.length > 0
+
+  return (
+    <div className="card package-card">
+      <div className="card-header">
+        <div className="card-title">
+          <strong>
+            {pkg.provider} — {pkg.packageName}
+          </strong>
+        </div>
+
+        <div className="card-actions">
+          <button
+            type="button"
+            className="outline-btn small"
+            onClick={() => onToggleSaved(pkg.id)}
+            aria-label={isSaved ? 'Remove from saved' : 'Save package'}
+            title={isSaved ? 'Saved (tap to remove)' : 'Save (tap to add)'}
+          >
+            {isSaved ? '❤️' : '🤍'}
+          </button>
+
+          {showCompareToggle && onToggleCompare && (
+            <button
+              type="button"
+              className={isCompared ? 'outline-btn small compare-btn active' : 'outline-btn small compare-btn'}
+              onClick={() => onToggleCompare(pkg.id)}
+            >
+              {isCompared ? 'Comparing' : 'Compare'}
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="muted">{dateLine}</div>
+
+      <div style={{ marginTop: '0.6rem' }}>
+        <div className="muted" style={{ marginBottom: '0.15rem' }}>
+          Listed price (Al Muaisim • quad baseline)
+        </div>
+        <div style={{ fontSize: '1.25rem', fontWeight: 900, lineHeight: 1.1 }}>
+          {formatSAR(pkg.basePriceSAR)}
+        </div>
+      </div>
+
+      <div className="package-plus-grid">
+        <label className="package-plus-field">
+          <div className="muted">Hujjaj count</div>
+          <input
+            className="input"
+            type="number"
+            min={1}
+            inputMode="numeric"
+            value={selection.hujjajCount}
+            onChange={(e) =>
+              onSelectionChange({ hujjajCount: Math.max(1, Number(e.target.value) || 1) })
+            }
+          />
+        </label>
+
+        <label className="package-plus-field">
+          <div className="muted">Mina camp</div>
+          <select
+            className="select"
+            value={selection.minaCamp}
+            onChange={(e) => onSelectionChange({ minaCamp: e.target.value as PackagePlusSelection['minaCamp'] })}
+          >
+            {campOptions.map((camp) => (
+              <option key={camp} value={camp}>
+                {camp === 'muaisim'
+                  ? 'Al Muaisim (included)'
+                  : `Majr AlKabsh (+${formatSAR2(MAJR_UPGRADE_FEE_SAR)} pp)`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="package-plus-field">
+          <div className="muted">Makkah room</div>
+          <select
+            className="select"
+            value={selection.makkahOcc}
+            onChange={(e) => onSelectionChange({ makkahOcc: e.target.value as RoomOccupancy })}
+          >
+            {makkahOptions.map((occ) => (
+              <option key={occ} value={occ}>
+                {occ === 'quad'
+                  ? 'Quad (included)'
+                  : `${occ[0].toUpperCase() + occ.slice(1)} (+${formatSAR2(
+                      getOccupancyFee(pkg.upgradeFees?.makkah, occ)
+                    )} pp)`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="package-plus-field">
+          <div className="muted">Madinah room</div>
+          <select
+            className="select"
+            value={selection.madinahOcc}
+            onChange={(e) => onSelectionChange({ madinahOcc: e.target.value as RoomOccupancy })}
+          >
+            {madinahOptions.map((occ) => (
+              <option key={occ} value={occ}>
+                {occ === 'quad'
+                  ? 'Quad (included)'
+                  : `${occ[0].toUpperCase() + occ.slice(1)} (+${formatSAR2(
+                      getOccupancyFee(pkg.upgradeFees?.madinah, occ)
+                    )} pp)`}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        {pkg.isShifting && (
+          <label className="package-plus-field">
+            <div className="muted">Aziziya room</div>
+            <select
+              className="select"
+              value={selection.aziziyaOcc}
+              onChange={(e) => onSelectionChange({ aziziyaOcc: e.target.value as RoomOccupancy })}
+            >
+              {aziziyaOptions.map((occ) => (
+                <option key={occ} value={occ}>
+                  {occ === 'quad'
+                    ? 'Quad (included)'
+                    : `${occ[0].toUpperCase() + occ.slice(1)} (+${formatSAR2(
+                        getOccupancyFee(pkg.upgradeFees?.aziziya, occ)
+                      )} pp)`}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
+      </div>
+
+      <div className="package-plus-total">
+        <div className="muted">Estimated total (excl. flight)</div>
+        <div className="package-plus-total-value">{formatSAR(total)}</div>
+        <div className="muted">{selection.hujjajCount} hujjaj • {formatSAR(perPerson)} per person</div>
+        {selectedUpgrades.length > 0 && (
+          <div className="package-plus-summary">{selectedUpgrades.join(' • ')}</div>
+        )}
+        {showPossible && (
+          <div className="package-plus-summary muted">Possible upgrades: {possibleUpgrades.join(' • ')}</div>
+        )}
+      </div>
+
+      <div className="muted" style={{ marginTop: '0.6rem' }}>
+        Mina: {campLabel(selection.minaCamp)} • Zone: {pkg.makkahZone} •{' '}
+        {pkg.isShifting ? 'Shifting' : 'Non-shifting'}
+      </div>
+
+      <div className="muted" style={{ marginTop: '0.35rem' }}>
+        {hotelsLine}
+      </div>
+
+      {pkg.packageLink && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <a href={pkg.packageLink} target="_blank" rel="noreferrer">
+            Package link
+          </a>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function RejectedReport({ rejected }: { rejected: LoaderResult['rejected'] }) {
   if (rejected.length === 0) return null
   return (
@@ -376,6 +683,11 @@ export default function App() {
   const [loadError, setLoadError] = useState<string | null>(null)
   const [rejected, setRejected] = useState<LoaderResult['rejected']>([])
 
+  const [plusPreloaded, setPlusPreloaded] = useState<HajjPackage[]>([])
+  const [plusLoadingPackages, setPlusLoadingPackages] = useState(true)
+  const [plusLoadError, setPlusLoadError] = useState<string | null>(null)
+  const [plusRejected, setPlusRejected] = useState<LoaderResult['rejected']>([])
+
   const [mergedPackages, setMergedPackages] = useState<HajjPackage[]>([])
   const [editedIds, setEditedIds] = useState<Set<string>>(new Set())
 
@@ -433,6 +745,18 @@ export default function App() {
 
   const [favouriteIds, setFavouriteIds] = useState<string[]>(getFavouriteIds())
 
+  const [packagePlusSelections, setPackagePlusSelections] = useState<Record<string, PackagePlusSelection>>(
+    () => loadPackagePlusSelections()
+  )
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PACKAGE_PLUS_SELECTIONS_KEY, JSON.stringify(packagePlusSelections))
+    } catch {
+      // ignore
+    }
+  }, [packagePlusSelections])
+
   function refreshMerged(currentPreloaded: HajjPackage[]) {
     const merged = mergePackages(currentPreloaded)
     setMergedPackages(merged.packages)
@@ -447,6 +771,18 @@ export default function App() {
     const res = toggleFavourite(id)
     if (!res.ok && res.message) alert(res.message)
     refreshFavourites()
+  }
+
+  function getPackagePlusSelection(pkg: HajjPackage): PackagePlusSelection {
+    return normalizePackagePlusSelection(pkg, packagePlusSelections[pkg.id])
+  }
+
+  function updatePackagePlusSelection(pkg: HajjPackage, updates: Partial<PackagePlusSelection>) {
+    setPackagePlusSelections((prev) => {
+      const current = normalizePackagePlusSelection(pkg, prev[pkg.id])
+      const next = normalizePackagePlusSelection(pkg, { ...current, ...updates })
+      return { ...prev, [pkg.id]: next }
+    })
   }
 
   useEffect(() => {
@@ -466,6 +802,30 @@ export default function App() {
         if (cancelled) return
         setLoadError(e instanceof Error ? e.message : 'Failed to load XLSX')
         setLoadingPackages(false)
+      }
+    }
+    run()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    async function run() {
+      setPlusLoadingPackages(true)
+      setPlusLoadError(null)
+
+      try {
+        const res = await loadAlternativePackages()
+        if (cancelled) return
+        setPlusPreloaded(res.packages)
+        setPlusRejected(res.rejected)
+        setPlusLoadingPackages(false)
+      } catch (e) {
+        if (cancelled) return
+        setPlusLoadError(e instanceof Error ? e.message : 'Failed to load XLSX')
+        setPlusLoadingPackages(false)
       }
     }
     run()
@@ -574,6 +934,53 @@ export default function App() {
     setShowCompareView(true)
   }
 
+  const [showPackagePlusFilters, setShowPackagePlusFilters] = useState(false)
+  const [comparePlusIds, setComparePlusIds] = useState<string[]>([])
+  const [showComparePlusView, setShowComparePlusView] = useState(false)
+  const emptyPackagePlusFilters: PackageFilters = emptyPackageFilters
+  const [packagePlusFilters, setPackagePlusFilters] = useState<PackageFilters>(emptyPackagePlusFilters)
+  const [draftPackagePlusFilters, setDraftPackagePlusFilters] = useState<PackageFilters>(emptyPackagePlusFilters)
+
+  function openPackagePlusFilters() {
+    setDraftPackagePlusFilters(packagePlusFilters)
+    setShowPackagePlusFilters(true)
+  }
+
+  function applyPackagePlusFilters() {
+    setPackagePlusFilters(draftPackagePlusFilters)
+    setShowPackagePlusFilters(false)
+  }
+
+  function resetPackagePlusFilters() {
+    setPackagePlusFilters(emptyPackagePlusFilters)
+    setDraftPackagePlusFilters(emptyPackagePlusFilters)
+    setShowPackagePlusFilters(false)
+  }
+
+  function toggleComparePlus(id: string) {
+    setComparePlusIds((prev) => {
+      if (prev.includes(id)) return prev.filter((x) => x !== id)
+      if (prev.length >= 3) {
+        alert('You can compare up to 3 packages at a time.')
+        return prev
+      }
+      return [...prev, id]
+    })
+  }
+
+  function clearComparePlus() {
+    setComparePlusIds([])
+    setShowComparePlusView(false)
+  }
+
+  function openComparePlus() {
+    if (comparePlusIds.length < 2) {
+      alert('Select at least 2 packages to compare.')
+      return
+    }
+    setShowComparePlusView(true)
+  }
+
   const filteredPackages = mergedPackages.filter((p) => {
     if (packageFilters.provider !== 'any' && p.provider !== packageFilters.provider) return false
 
@@ -621,19 +1028,76 @@ export default function App() {
     return a.basePriceSAR - b.basePriceSAR
   })
 
+  const filteredPackagePlus = plusPreloaded.filter((p) => {
+    if (packagePlusFilters.provider !== 'any' && p.provider !== packagePlusFilters.provider) return false
+
+    if (packagePlusFilters.shifting !== 'any') {
+      const shiftingMatch = packagePlusFilters.shifting === 'shifting' ? p.isShifting : !p.isShifting
+      if (!shiftingMatch) return false
+    }
+
+    if (packagePlusFilters.makkahZone !== 'any' && p.makkahZone !== packagePlusFilters.makkahZone) return false
+    if (packagePlusFilters.minaCamp !== 'any' && p.minaCamp !== packagePlusFilters.minaCamp) return false
+
+    if (packagePlusFilters.durationDays !== 'any') {
+      if (String(p.durationDays) !== packagePlusFilters.durationDays) return false
+    }
+
+    if (packagePlusFilters.startDate !== 'any' && p.startDate !== packagePlusFilters.startDate) return false
+    if (packagePlusFilters.endDate !== 'any' && p.endDate !== packagePlusFilters.endDate) return false
+
+    if (packagePlusFilters.makkahHotel !== 'any') {
+      if (getHotelName(p, 'makkah') !== packagePlusFilters.makkahHotel) return false
+    }
+
+    if (packagePlusFilters.madinahHotel !== 'any') {
+      if (getHotelName(p, 'madinah') !== packagePlusFilters.madinahHotel) return false
+    }
+
+    if (packagePlusFilters.flightGateway !== 'any') {
+      if (p.flight?.gateway !== packagePlusFilters.flightGateway) return false
+    }
+
+    const minPrice = Number(packagePlusFilters.minPrice)
+    if (packagePlusFilters.minPrice && !Number.isNaN(minPrice) && p.basePriceSAR < minPrice) return false
+
+    const maxPrice = Number(packagePlusFilters.maxPrice)
+    if (packagePlusFilters.maxPrice && !Number.isNaN(maxPrice) && p.basePriceSAR > maxPrice) return false
+
+    return true
+  })
+
+  const visiblePackagePlus = [...filteredPackagePlus].sort((a, b) => {
+    if (packagePlusFilters.sort === 'price-asc') return a.basePriceSAR - b.basePriceSAR
+    if (packagePlusFilters.sort === 'price-desc') return b.basePriceSAR - a.basePriceSAR
+    const providerCompare = a.provider.localeCompare(b.provider)
+    if (providerCompare !== 0) return providerCompare
+    return a.basePriceSAR - b.basePriceSAR
+  })
+
   const savedPackages = useMemo(() => {
-    const byId = new Map(mergedPackages.map((p) => [p.id, p]))
+    const byId = new Map([...mergedPackages, ...plusPreloaded].map((p) => [p.id, p]))
     return favouriteIds.map((id) => byId.get(id)).filter(Boolean) as HajjPackage[]
-  }, [favouriteIds, mergedPackages])
+  }, [favouriteIds, mergedPackages, plusPreloaded])
 
   const comparePackages = useMemo(() => {
     const byId = new Map(mergedPackages.map((p) => [p.id, p]))
     return compareIds.map((id) => byId.get(id)).filter(Boolean) as HajjPackage[]
   }, [compareIds, mergedPackages])
 
+  const comparePlusPackages = useMemo(() => {
+    const byId = new Map(plusPreloaded.map((p) => [p.id, p]))
+    return comparePlusIds.map((id) => byId.get(id)).filter(Boolean) as HajjPackage[]
+  }, [comparePlusIds, plusPreloaded])
+
   const packageProviders = useMemo(
     () => uniqueSorted(mergedPackages.map((p) => p.provider)),
     [mergedPackages]
+  )
+
+  const packagePlusProviders = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => p.provider)),
+    [plusPreloaded]
   )
 
   const packageZones = useMemo(
@@ -641,9 +1105,19 @@ export default function App() {
     [mergedPackages]
   )
 
+  const packagePlusZones = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => p.makkahZone)),
+    [plusPreloaded]
+  )
+
   const packageDurations = useMemo(
     () => uniqueSorted(mergedPackages.map((p) => String(p.durationDays))),
     [mergedPackages]
+  )
+
+  const packagePlusDurations = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => String(p.durationDays))),
+    [plusPreloaded]
   )
 
   const packageStartDates = useMemo(
@@ -651,9 +1125,19 @@ export default function App() {
     [mergedPackages]
   )
 
+  const packagePlusStartDates = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => p.startDate)),
+    [plusPreloaded]
+  )
+
   const packageEndDates = useMemo(
     () => uniqueSorted(mergedPackages.map((p) => p.endDate)),
     [mergedPackages]
+  )
+
+  const packagePlusEndDates = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => p.endDate)),
+    [plusPreloaded]
   )
 
   const packageMakkahHotels = useMemo(
@@ -661,9 +1145,19 @@ export default function App() {
     [mergedPackages]
   )
 
+  const packagePlusMakkahHotels = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => getHotelName(p, 'makkah'))),
+    [plusPreloaded]
+  )
+
   const packageMadinahHotels = useMemo(
     () => uniqueSorted(mergedPackages.map((p) => getHotelName(p, 'madinah'))),
     [mergedPackages]
+  )
+
+  const packagePlusMadinahHotels = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => getHotelName(p, 'madinah'))),
+    [plusPreloaded]
   )
 
   const packageFlightGateways = useMemo(
@@ -724,6 +1218,20 @@ export default function App() {
     </div>
   )
 
+  const plusStatusLine = (
+    <div className="muted" style={{ margin: '0.75rem 0' }}>
+      {plusLoadingPackages && 'Loading packages…'}
+      {!plusLoadingPackages && plusLoadError && `Could not load XLSX: ${plusLoadError}`}
+      {!plusLoadingPackages && !plusLoadError && (
+        <>
+          Loaded: <strong>{plusPreloaded.length}</strong> preloaded
+          {plusRejected.length > 0 ? ` • Rejected: ${plusRejected.length}` : ''}
+          {favouriteIds.length > 0 ? ` • Saved: ${favouriteIds.length}/5` : ''}
+        </>
+      )}
+    </div>
+  )
+
   return (
     <div className="app-root">
       <main className="app-content">
@@ -741,8 +1249,9 @@ export default function App() {
 
             {statusLine}
 
-            <HomeTile icon="🧭" title="Set preferences" description="Budget, dates, zone, camp, shifting, occupancy." onClick={() => setTab('preferences')} />
+            <HomeTile icon="⚙️" title="Set preferences" description="Budget, dates, zone, camp, shifting, occupancy." onClick={() => setTab('preferences')} />
             <HomeTile icon="📦" title="View packages" description="Browse packages and filter by provider." onClick={() => setTab('packages')} />
+            <HomeTile icon="➕" title="Package+ view" description="Adjust rooms, camp upgrades, and hujjaj count." onClick={() => setTab('packagePlus')} />
             <HomeTile icon="❤️" title="Saved packages" description="Quick access to up to 5 saved packages." onClick={() => setTab('saved')} />
             <HomeTile icon="⭐" title="Get recommendations" description="Top matches that aim to maximise value for your budget." onClick={() => setTab('recommend')} />
 
@@ -1320,6 +1829,397 @@ export default function App() {
           </section>
         )}
 
+        {/* PACKAGE+ */}
+        {tab === 'packagePlus' && (
+          <section>
+            <h1>Package+</h1>
+            <p className="muted" style={{ marginTop: '-0.25rem' }}>
+              Alternative view using Al Muaisim + quad as the listed price. Adjust camp, room types,
+              and hujjaj count to see your total.
+            </p>
+
+            {plusStatusLine}
+
+            <div style={{ display: 'flex', gap: '0.5rem', margin: '0 0 0.75rem' }}>
+              <button type="button" className="outline-btn" style={{ flex: 1 }} onClick={openPackagePlusFilters}>
+                Filters & sort
+              </button>
+              <button type="button" className="outline-btn" style={{ flex: 1 }} onClick={resetPackagePlusFilters}>
+                Show all packages
+              </button>
+            </div>
+
+            {comparePlusIds.length > 0 && (
+              <div className="card compare-summary">
+                <div className="compare-summary-header">
+                  <div>
+                    <strong>Compare packages</strong>
+                    <div className="muted">Select up to 3 packages to view side by side.</div>
+                  </div>
+                  <button type="button" className="outline-btn small" onClick={clearComparePlus}>
+                    Clear
+                  </button>
+                </div>
+
+                <div className="compare-tags">
+                  {comparePlusPackages.map((p) => (
+                    <span key={p.id} className="pill">
+                      {p.provider} — {p.packageName}
+                    </span>
+                  ))}
+                </div>
+
+                <div className="compare-actions">
+                  <button type="button" className="primary-button" onClick={openComparePlus}>
+                    Compare
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showPackagePlusFilters && (
+              <div className="card filter-panel">
+                <div className="filter-grid">
+                  <label className="filter-field">
+                    <div className="muted">Provider</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.provider}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, provider: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusProviders.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Shifting</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.shifting}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({
+                          ...prev,
+                          shifting: e.target.value as PackageFilters['shifting']
+                        }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="non-shifting">Non-shifting</option>
+                      <option value="shifting">Shifting</option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Makkah zone</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.makkahZone}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, makkahZone: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusZones.map((z) => (
+                        <option key={z} value={z}>
+                          {z}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Duration (days)</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.durationDays}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, durationDays: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusDurations.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Start date</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.startDate}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, startDate: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusStartDates.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">End date</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.endDate}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, endDate: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusEndDates.map((d) => (
+                        <option key={d} value={d}>
+                          {d}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Makkah hotel</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.makkahHotel}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, makkahHotel: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusMakkahHotels.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Madinah hotel</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.madinahHotel}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, madinahHotel: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusMadinahHotels.map((h) => (
+                        <option key={h} value={h}>
+                          {h}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Mina camp</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.minaCamp}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({
+                          ...prev,
+                          minaCamp: e.target.value as PackageFilters['minaCamp']
+                        }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      <option value="majr">Majr AlKabsh</option>
+                      <option value="muaisim">Al Muaisim</option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Price range (SAR)</div>
+                    <div className="filter-inline">
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="Min"
+                        value={draftPackagePlusFilters.minPrice}
+                        onChange={(e) =>
+                          setDraftPackagePlusFilters((prev) => ({ ...prev, minPrice: e.target.value }))
+                        }
+                      />
+                      <input
+                        className="input"
+                        type="number"
+                        inputMode="decimal"
+                        placeholder="Max"
+                        value={draftPackagePlusFilters.maxPrice}
+                        onChange={(e) =>
+                          setDraftPackagePlusFilters((prev) => ({ ...prev, maxPrice: e.target.value }))
+                        }
+                      />
+                    </div>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">Sort by price</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.sort}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({
+                          ...prev,
+                          sort: e.target.value as PackageFilters['sort']
+                        }))
+                      }
+                    >
+                      <option value="none">Default order</option>
+                      <option value="price-asc">Low to high</option>
+                      <option value="price-desc">High to low</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="filter-actions">
+                  <button type="button" className="outline-btn" onClick={resetPackagePlusFilters}>
+                    Reset
+                  </button>
+                  <button type="button" className="primary-button" onClick={applyPackagePlusFilters}>
+                    Show packages
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {showComparePlusView && comparePlusPackages.length > 0 && (
+              <div className="card compare-table">
+                <div className="compare-header">
+                  <strong>Package comparison</strong>
+                  <button type="button" className="outline-btn small" onClick={() => setShowComparePlusView(false)}>
+                    Back to packages
+                  </button>
+                </div>
+
+                <div className="compare-scroll">
+                  <div
+                    className="compare-grid"
+                    style={{ gridTemplateColumns: `170px repeat(${comparePlusPackages.length}, minmax(200px, 1fr))` }}
+                  >
+                    <div className="compare-cell compare-label">Provider</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-provider`} className="compare-cell">
+                        {p.provider}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Package</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-name`} className="compare-cell">
+                        {p.packageName}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Base price</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-price`} className="compare-cell">
+                        {formatSAR(p.basePriceSAR)}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Dates</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-dates`} className="compare-cell">
+                        {p.startDate} → {p.endDate}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Duration</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-duration`} className="compare-cell">
+                        {p.durationDays} days
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Makkah zone</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-zone`} className="compare-cell">
+                        {p.makkahZone}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Shifting</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-shift`} className="compare-cell">
+                        {p.isShifting ? 'Shifting' : 'Non-shifting'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Mina camp</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-camp`} className="compare-cell">
+                        {campLabel(p.minaCamp)}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Makkah hotel</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-makkah`} className="compare-cell">
+                        {getHotelName(p, 'makkah') || '—'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Madinah hotel</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-madinah`} className="compare-cell">
+                        {getHotelName(p, 'madinah') || '—'}
+                      </div>
+                    ))}
+
+                    <div className="compare-cell compare-label">Package link</div>
+                    {comparePlusPackages.map((p) => (
+                      <div key={`${p.id}-link`} className="compare-cell">
+                        {p.packageLink ? (
+                          <a href={p.packageLink} target="_blank" rel="noreferrer">
+                            Open
+                          </a>
+                        ) : (
+                          '—'
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <NusukDisclaimer />
+
+            {!showComparePlusView &&
+              visiblePackagePlus.map((p) => (
+                <PackagePlusCard
+                  key={p.id}
+                  pkg={p}
+                  selection={getPackagePlusSelection(p)}
+                  onSelectionChange={(updates) => updatePackagePlusSelection(p, updates)}
+                  isSaved={favouriteIds.includes(p.id)}
+                  onToggleSaved={onToggleSaved}
+                  showCompareToggle
+                  isCompared={comparePlusIds.includes(p.id)}
+                  onToggleCompare={toggleComparePlus}
+                />
+              ))}
+
+            <RejectedReport rejected={plusRejected} />
+          </section>
+        )}
+
         {/* PREFS */}
         {tab === 'preferences' && (
           <section>
@@ -1338,6 +2238,10 @@ export default function App() {
             <span className="nav-icon">🏠</span>
             <span className="nav-label">Home</span>
           </button>
+          <button className={tab === 'preferences' ? 'active' : ''} onClick={() => setTab('preferences')}>
+            <span className="nav-icon">⚙️</span>
+            <span className="nav-label">Prefs</span>
+          </button>
           <button className={tab === 'saved' ? 'active' : ''} onClick={() => setTab('saved')}>
             <span className="nav-icon">❤️</span>
             <span className="nav-label">Saved</span>
@@ -1346,9 +2250,9 @@ export default function App() {
             <span className="nav-icon">📦</span>
             <span className="nav-label">Packages</span>
           </button>
-          <button className={tab === 'preferences' ? 'active' : ''} onClick={() => setTab('preferences')}>
-            <span className="nav-icon">⚙️</span>
-            <span className="nav-label">Prefs</span>
+          <button className={tab === 'packagePlus' ? 'active' : ''} onClick={() => setTab('packagePlus')}>
+            <span className="nav-icon">➕</span>
+            <span className="nav-label">Package+</span>
           </button>
           <button className={tab === 'recommend' ? 'active' : ''} onClick={() => setTab('recommend')}>
             <span className="nav-icon">⭐</span>
