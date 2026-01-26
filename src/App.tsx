@@ -26,6 +26,7 @@ type Tab = 'home' | 'saved' | 'recommend' | 'packages' | 'packagePlus' | 'prefer
 type PackageFilters = {
   provider: string
   shifting: 'any' | 'shifting' | 'non-shifting'
+  firstCity: string
   makkahZone: string
   durationDays: string
   startDate: string
@@ -878,6 +879,7 @@ export default function App() {
   const emptyPackageFilters: PackageFilters = {
     provider: 'any',
     shifting: 'any',
+    firstCity: 'any',
     makkahZone: 'any',
     durationDays: 'any',
     startDate: 'any',
@@ -987,6 +989,8 @@ export default function App() {
       if (!shiftingMatch) return false
     }
 
+    if (packageFilters.firstCity !== 'any' && p.firstCity !== packageFilters.firstCity) return false
+
     if (packageFilters.makkahZone !== 'any' && p.makkahZone !== packageFilters.makkahZone) return false
     if (packageFilters.minaCamp !== 'any' && p.minaCamp !== packageFilters.minaCamp) return false
 
@@ -1029,6 +1033,8 @@ export default function App() {
       const shiftingMatch = packagePlusFilters.shifting === 'shifting' ? p.isShifting : !p.isShifting
       if (!shiftingMatch) return false
     }
+
+    if (packagePlusFilters.firstCity !== 'any' && p.firstCity !== packagePlusFilters.firstCity) return false
 
     if (packagePlusFilters.makkahZone !== 'any' && p.makkahZone !== packagePlusFilters.makkahZone) return false
     if (packagePlusFilters.minaCamp !== 'any' && p.minaCamp !== packagePlusFilters.minaCamp) return false
@@ -1085,8 +1091,18 @@ export default function App() {
     [mergedPackages]
   )
 
+  const packageFirstCities = useMemo(
+    () => uniqueSorted(mergedPackages.map((p) => p.firstCity)),
+    [mergedPackages]
+  )
+
   const packagePlusProviders = useMemo(
     () => uniqueSorted(plusPreloaded.map((p) => p.provider)),
+    [plusPreloaded]
+  )
+
+  const packagePlusFirstCities = useMemo(
+    () => uniqueSorted(plusPreloaded.map((p) => p.firstCity)),
     [plusPreloaded]
   )
 
@@ -1487,6 +1503,24 @@ export default function App() {
                   </label>
 
                   <label className="filter-field">
+                    <div className="muted">First city</div>
+                    <select
+                      className="select"
+                      value={draftPackageFilters.firstCity}
+                      onChange={(e) =>
+                        setDraftPackageFilters((prev) => ({ ...prev, firstCity: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packageFirstCities.map((city) => (
+                        <option key={city} value={city}>
+                          {city[0].toUpperCase() + city.slice(1)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
                     <div className="muted">Makkah zone</div>
                     <select
                       className="select"
@@ -1881,6 +1915,24 @@ export default function App() {
                       <option value="any">Any</option>
                       <option value="non-shifting">Non-shifting</option>
                       <option value="shifting">Shifting</option>
+                    </select>
+                  </label>
+
+                  <label className="filter-field">
+                    <div className="muted">First city</div>
+                    <select
+                      className="select"
+                      value={draftPackagePlusFilters.firstCity}
+                      onChange={(e) =>
+                        setDraftPackagePlusFilters((prev) => ({ ...prev, firstCity: e.target.value }))
+                      }
+                    >
+                      <option value="any">Any</option>
+                      {packagePlusFirstCities.map((city) => (
+                        <option key={city} value={city}>
+                          {city[0].toUpperCase() + city.slice(1)}
+                        </option>
+                      ))}
                     </select>
                   </label>
 
